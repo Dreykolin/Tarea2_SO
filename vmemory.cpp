@@ -4,8 +4,16 @@
 #include <list>
 #include <vector>
 #include <string>
+#include <cstdlib>
 
 using namespace std;
+
+// Estructura para cada entrada de la tabla de páginas (usada en Reloj)
+struct EntradaTabla {
+    int marcoFisico;   // Número del marco físico
+    bool valido;       // Bit de validez
+    bool referencia;   // Bit de referencia
+};
 
 // Función para leer el archivo con las referencias de páginas
 vector<int> leerArchivoPaginas(const string &nombreArchivo) {
@@ -71,10 +79,49 @@ int simularLRU(int numMarcos, const vector<int> &paginas) {
     return fallosPagina;
 }
 
+// Simulación Reloj
+int simularReloj(int numMarcos, const vector<int> &paginas) {
+    // Tabla de páginas y memoria física para el algoritmo de Reloj
+    unordered_map<int, EntradaTabla> tablaPaginasReloj;
+    vector<int> memoriaFisicaReloj;
+    int punteroReloj = 0; // Puntero circular para el algoritmo de Reloj
+    int fallosPagina = 0;
+
+    for (int pagina : paginas) {
+        if (tablaPaginasReloj.find(pagina) != tablaPaginasReloj.end() && tablaPaginasReloj[pagina].valido) {
+            // Página ya está en memoria
+            tablaPaginasReloj[pagina].referencia = true;
+        } else {
+            // Fallo de página
+            fallosPagina++;
+            if (memoriaFisicaReloj.size() >= numMarcos) {
+                while (true) {
+                    int paginaARemover = memoriaFisicaReloj[punteroReloj];
+                    if (tablaPaginasReloj[paginaARemover].referencia) {
+                        tablaPaginasReloj[paginaARemover].referencia = false;
+                        punteroReloj = (punteroReloj + 1) % numMarcos;
+                    } else {
+                        tablaPaginasReloj[paginaARemover].valido = false;
+                        memoriaFisicaReloj[punteroReloj] = pagina;
+                        tablaPaginasReloj[pagina] = {punteroReloj, true, true};
+                        punteroReloj = (punteroReloj + 1) % numMarcos;
+                        break;
+                    }
+                }
+            } else {
+                int marcoFisico = memoriaFisicaReloj.size();
+                memoriaFisicaReloj.push_back(pagina);
+                tablaPaginasReloj[pagina] = {marcoFisico, true, true};
+            }
+        }
+    }
+    return fallosPagina;
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 4) {
         cerr << "Uso: " << argv[0] << " <num_marcos> <algoritmo> <archivo_paginas>" << endl;
-        cerr << "Algoritmos soportados: FIFO, LRU" << endl;
+        cerr << "Algoritmos soportados: FIFO, LRU, RELOJ" << endl;
         return 1;
     }
 
@@ -89,9 +136,11 @@ int main(int argc, char *argv[]) {
         fallosPagina = simularFIFO(numMarcos, paginas);
     } else if (algoritmo == "LRU") {
         fallosPagina = simularLRU(numMarcos, paginas);
+    } else if (algoritmo == "RELOJ") {
+        fallosPagina = simularReloj(numMarcos, paginas);
     } else {
         cerr << "Algoritmo no reconocido: " << algoritmo << endl;
-        cerr << "Algoritmos soportados: FIFO, LRU" << endl;
+        cerr << "Algoritmos soportados: FIFO, LRU, RELOJ" << endl;
         return 1;
     }
 
