@@ -117,6 +117,53 @@ int simularReloj(int numMarcos, const vector<int> &paginas) {
     }
     return fallosPagina;
 }
+//Simulador Óptimo
+int simularOPT(int numMarcos, const vector<int> &paginas) {
+    // Memoria física
+    vector<int> memoria;
+    int fallosPagina = 0;
+
+    for (size_t i = 0; i < paginas.size(); ++i) {
+        int pagina = paginas[i];
+        // Si la página ya está en memoria, no ocurre un fallo
+        if (find(memoria.begin(), memoria.end(), pagina) != memoria.end()) {
+            continue;
+        }
+
+        fallosPagina++;
+        if (memoria.size() < numMarcos) {
+            // Hay espacio libre en memoria, cargamos la página
+            memoria.push_back(pagina);
+        } else {
+            // Memoria llena, necesitamos reemplazar una página
+            int indiceReemplazo = -1;
+            int usoMasLejano = -1;
+            // Encontrar la página cuyo próximo uso está más lejos en el futuro
+            for (size_t j = 0; j < memoria.size(); ++j) {
+                int proximoUso = -1;
+                for (size_t k = i + 1; k < paginas.size(); ++k) {
+                    if (paginas[k] == memoria[j]) {
+                        proximoUso = k;
+                        break;
+                    }
+                }
+                // Si la página no se usará más, reemplazarla
+                if (proximoUso == -1) {
+                    indiceReemplazo = j;
+                    break;
+                }
+                // Actualizar el índice si esta página está más lejos en el futuro
+                if (proximoUso > usoMasLejano) {
+                    usoMasLejano = proximoUso;
+                    indiceReemplazo = j;
+                }
+            }
+            // Reemplazar la página más óptima
+            memoria[indiceReemplazo] = pagina;
+        }
+    }
+    return fallosPagina;
+}
 
 int main(int argc, char *argv[]) {
     if (argc != 4) {
