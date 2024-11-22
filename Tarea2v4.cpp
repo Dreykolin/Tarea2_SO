@@ -6,14 +6,14 @@
 #include <ctime>
 #include <fstream>
 #include <string.h>
+#include <vector>
 
 class Monitor_P_C {
     public:
         Monitor_P_C(int N,int t, int p, int c){
-            std::cout << "enter";
             n = N;
             deftime = t;
-            items = new int[N];
+            items = std::vector<int>(N,0);
             P = p;
             C = c;
             std::string name;
@@ -22,37 +22,46 @@ class Monitor_P_C {
             tm *tm_local = localtime(&curr_time);
             name = "output_y"+std::__cxx11::to_string(tm_local->tm_year+1900)+"d"+std::__cxx11::to_string(tm_local->tm_yday)+"h"+std::__cxx11::to_string(tm_local->tm_hour)+"m"+std::__cxx11::to_string(tm_local->tm_min)+"s"+std::__cxx11::to_string(tm_local->tm_sec)+".txt";      
             outputfile.open(name, std::fstream::out | std::fstream::app);
-            std::cout << "contruct";
+            outputfile << "Se a creado el Monitor\n";
         }
+        // funcion usada por productor_thread para agregar elemento producido a la cola
         void Producir(int x){
+            //bloqueo para tener uso exclusivo de lo datos del monitor
             std::lock_guard<std::mutex> lck(monitMutex);
             items[in] = x;
-            in = (in + 1) % n;    
             count_items++;         
             if(count_items == n){
+                // si se llena el vector items, se duplica su tamaño
                 dupsize();
             }
+            in = (in + 1) % n;    
+            outputfile << "Se a agregado el item:" << x << " / la cola tiene: " << count_items << " items / la cola tiene una capacidad maxima de: " << n << " items\n";
             monitCond.notify_one();
         }
+        // funcion usada por consumer_thread para consumir elemento de la cola
         void Consumir(int *x){
+            //bloqueo para tener uso exclusivo de lo datos del monitor
             std::unique_lock<std::mutex> lck(monitMutex);
             while(count_items == 0){
+                //en caso de ausencia de elementos en items consede bloqueo par que algun productor produsca si pasan 10 segundo y no hay elementos en items consumir termina terminando el hilo consumidor que solo usa la funcion consumir
                 monitCond.wait_for(lck, std::chrono::seconds(deftime));
                 if (count_items == 0){return;}
             }
             *x = items[out];
-            out = (out + 1) % n;
-            count_items--;         
-            if(count_items == n/4){
+            count_items--;
+            out = (out + 1) % n;         
+            if(count_items <= n/4){
+                //si el numero de items es menor a 1/4 del tamaño del vector items se disminuye el tamaño del vector items a la mitad
                 halfsize();
             }
+            outputfile << "Se a consumido un el item:" << *x << " / la cola tiene: " << count_items << " items / la cola tiene una capacidad maxima de: " << n << " items\n";
         }
         int getP(){return P;}
         int getC(){return C;}
     private:
         bool not_empty(){return count_items>0;}
         int n;
-        int* items;
+        std::vector<int> items;
         int deftime;
         int count_items = 0; 
         int in = 0, out = 0;
@@ -60,58 +69,88 @@ class Monitor_P_C {
         mutable std::mutex monitMutex;
         mutable std::condition_variable monitCond;
         std::fstream outputfile;
-        void dupsize(){
-            int* new_array = new int[n*2];
+        //funcion para duplicar size de items
+        void dupsize(){ 
+            //crea un nuevo vector con el doble del tamaño de items
+            std::vector<int> new_array(n*2,0);
+            //pasa sus datos de la posicion 0 a n-1 para no tener que modificar in y out asi las posiciones se mantienen
             for (int i = 0; i < n; i++){
                 new_array[i] = items[i];
             }
-            items = new_array;
+            //intercambia items con el vector recien creado
+            items.swap(new_array);
             n = n*2;
             outputfile << "se a duplicado el tamaño de la cola\n";
-        }        
-        void halfsize(){       
-            int i = 0;
-            int* new_array = new int[n/2];
-            while(in != out){
-                new_array[i] = items[in];
-                in = (in+1)%n;
-                i++;
+        }      
+        //funcion para dividir a la mitad size de items
+        void halfsize(){     
+            std::vector<int> new_array(n/2);
+            //se copian los datos de items al nuevo vector y se redefinen in y out
+            if (in < out){
+                //si en el vector circular in es menor que out se copia de out hasta el final y desde el inicio hasta in que son los datos del arreglo
+                copy(items.begin() + out, items.end(), new_array.begin());
+                copy(items.begin(), items.begin() + in, new_array.begin()+(items.size()-out));
+                in = out-in;
+            }else{
+                //si out es menor a in simplemente se copian los datos entre medio
+                std::copy(items.begin() + out, items.begin() + in, new_array.begin());
+                in = in-out;
             }
-            in = 0;
-            out = i;
-            items = new_array;
-            n = n*2;
+            //se define out como 0 gracia a la forma que fueron copiados los datos
+            out = 0;
+            //intercambia items con el vector recien creado
+            items.swap(new_array);
+            n = n/2;
             outputfile << "se a reducido a la mitad el tamaño de la cola\n";
         }
 };
 
 int main(int argc, char const *argv[]){  
-    std::cout << "pre-arg"; 
     int P = -1,C = -1,s = -1,t = -1;
-    std::cout << "pre-arg";
+    //se busca los argumentos "-p,-c,-s,-t" y si su argumento siguiente es un numero se define la respectiva variable como con ese numero en caso de no ser un numero continua al siguiente argumento
     for (int i = 0; i < argc; ++i){
         if (strcmp(argv[i],"-p") == 0){
-            P = std::__cxx11::stoi(argv[i+1]);
-            i++;
-            continue;
+            try{
+                P = std::__cxx11::stoi(argv[i+1]);
+                i++;
+                continue;
+            }
+            catch(std::invalid_argument& e){
+                continue;
+            }
         }
         if (strcmp(argv[i],"-c") == 0){
-            C = std::__cxx11::stoi(argv[i+1]);
-            i++;
-            continue;
+            try{
+                C = std::__cxx11::stoi(argv[i+1]);
+                i++;
+                continue;
+            }
+            catch(std::invalid_argument& e){
+                continue;
+            }
         }
         if (strcmp(argv[i],"-s") == 0){
-            s = std::__cxx11::stoi(argv[i+1]);
-            i++;
-            continue;
+            try{
+                s = std::__cxx11::stoi(argv[i+1]);
+                i++;
+                continue;
+            }
+            catch(std::invalid_argument& e){
+                continue;
+            }
         }
         if (strcmp(argv[i],"-t") == 0){
-            t = std::__cxx11::stoi(argv[i+1]);
-            i++;
-            continue;
+            try{
+                t = std::__cxx11::stoi(argv[i+1]);
+                i++;
+                continue;
+            }
+            catch(std::invalid_argument& e){
+                continue;
+            }
         }
     }
-    std::cout << "arg";
+    //si falto algun valor se pedira aqui
     while(P < 1){
         std::cout << P << std::endl;
         std::cout << "No se a introducido una cantidad de Productores o la cantidad introducida no es valida" << std::endl;
@@ -130,19 +169,19 @@ int main(int argc, char const *argv[]){
         std::cin >> t;
     }
     Monitor_P_C MPC(s,t,P,C);
-    std::thread hilo_productor([&MPC](){
-        for (int i = 0; i < MPC.getP(); ++i){
-            MPC.Producir(i);
-        }
-    });
-    std::thread hilo_consumidor([&MPC](){
-        for (int i = 0; i < MPC.getC(); ++i){
-            int out;
-            MPC.Consumir(&out);
-        }
-    });
-
-    hilo_consumidor.join();
-    hilo_productor.join();
+    // se crean los respectivos hilos donde os productores usan Producir y consumidores consumir
+    std::vector<std::thread> hilos;
+    for (int i = 0; i < MPC.getP(); i++){
+        hilos.emplace_back([&MPC, i](){
+                MPC.Producir(i);
+        });
+    }
+    int salida;
+    for (int i = 0; i < MPC.getC(); i++){
+        hilos.emplace_back([&MPC, &salida](){
+            MPC.Consumir(&salida);
+        });
+    }
+    for (auto &hilo : hilos) if (hilo.joinable()) hilo.join();
     return 0;
 }
